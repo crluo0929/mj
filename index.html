@@ -89,7 +89,7 @@
               <option value="cash">現金戰 (現場付清)</option>
             </select>
           </div>
-          </div>
+        </div>
 
         <label class="block text-sm font-black text-gray-500 mb-2">💰 請選擇今天有下場的玩家與最終輸贏</label>
         <div v-for="(record, index) in currentForm.records" :key="index" class="flex items-center space-x-2 mb-4 bg-gray-50 p-2 rounded-2xl border border-gray-200 shadow-sm">
@@ -255,7 +255,7 @@
           currentForm: {
             date: new Date().toISOString().split('T')[0],
             match_type: 'credit', 
-            note: '', // 備註欄位由後台直接代入登入者的 Email 帳號
+            note: '', 
             records: [
               { user_id: '', score: 0 }, { user_id: '', score: 0 },
               { user_id: '', score: 0 }, { user_id: '', score: 0 }
@@ -454,9 +454,7 @@
           if (!this.checkAdminPermission()) return;
           if (!this.isBalanced) return;
 
-          // 核心更動：強制抓取當前登入管理員的 Email 作為備註
           const adminEmail = auth.currentUser ? auth.currentUser.email : "未知管理員";
-
           const batch = db.batch();
           let gameRef;
 
@@ -464,7 +462,7 @@
             gameRef = db.collection("games").doc(this.editingGameId);
             batch.update(gameRef, { 
               date: this.currentForm.date, 
-              note: adminEmail, // 修改時同步更新為執行修改的管理員 Email
+              note: adminEmail, 
               match_type: this.currentForm.match_type 
             });
             const oldDetails = this.details.filter(d => d.game_id === this.editingGameId);
@@ -473,7 +471,7 @@
             gameRef = db.collection("games").doc();
             batch.set(gameRef, { 
               date: this.currentForm.date, 
-              note: adminEmail, // 新增時自動綁定建立者的 Email
+              note: adminEmail, 
               match_type: this.currentForm.match_type 
             });
           }
@@ -488,13 +486,37 @@
             });
           });
 
-          await batch.commit();
+          try {
+            await batch.commit();
 
-          const freshDetailsSnap = await db.collection("game_details").get();
-          this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          
-          this.fetchMonthCounts();
-          this.cancelEdit();
+            // 修正點 1：新增/修改成功後加入明確提示
+            if (this.isEditing) {
+              alert("🎉 該場歷史戰記已成功修改完成！");
+            } else {
+              alert("🚀 戰績已成功送出並記入生死簿！");
+            }
+
+            const freshDetailsSnap = await db.collection("game_details").get();
+            this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            // 如果是修改，也同步更新本機快取的 games 資料
+            if (this.isEditing) {
+              const gIdx = this.games.findIndex(g => g.id === this.editingGameId);
+              if (gIdx !== -1) {
+                this.games[gIdx].date = this.currentForm.date;
+                this.games[gIdx].match_type = this.currentForm.match_type;
+                this.games[gIdx].note = adminEmail;
+              }
+            } else {
+              // 新增場次時，強制清空已展開月份，讓使用者重新點擊時能撈到最新未緩存資料
+              this.expandedMonths = {};
+            }
+
+            this.fetchMonthCounts();
+            this.cancelEdit();
+          } catch (err) {
+            alert("❌ 儲存失敗，請檢查權限或網路狀況：" + err.message);
+          }
         },
         startEdit(game) {
           if (!this.checkAdminPermission()) return;
@@ -514,15 +536,23 @@
         async deleteGame(id) {
           if (!this.checkAdminPermission()) return;
           if (confirm("認真要刪除這場紀錄？")) {
-            const batch = db.batch();
-            batch.delete(db.collection("games").doc(id));
-            this.details.filter(d => d.game_id === id).forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
-            await batch.commit();
+            try {
+              const batch = db.batch();
+              batch.delete(db.collection("games").doc(id));
+              this.details.filter(d => d.game_id === id).forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
+              await batch.commit();
 
-            const freshDetailsSnap = await db.collection("game_details").get();
-            this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              // 修正點 2：刪除後同步將本機快取陣列中的這場比賽濾掉，確保畫面乾淨移除不留殘影
+              this.games = this.games.filter(g => g.id !== id);
 
-            this.fetchMonthCounts();
+              const freshDetailsSnap = await db.collection("game_details").get();
+              this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+              this.fetchMonthCounts();
+              alert("🗑️ 該場紀錄已徹底刪除。");
+            } catch (err) {
+              alert("❌ 刪除失敗，你可能沒有頂級管理員權限：" + err.message);
+            }
           }
         },
         cancelEdit() {
