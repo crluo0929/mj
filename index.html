@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>🏆 雀聖閣 - 智能優化版</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-size: 22px; line-height: 1.6; }
+    input, select, button { font-size: 24px !important; font-weight: bold !important; }
+    input[type="number"] { -moz-appearance: textfield; }
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+    .fade-enter-from, .fade-leave-to { opacity: 0; }
+  </style>
+</head>
+<body class="bg-gray-100 p-3 select-none">
+
+  <div id="app" class="max-w-md mx-auto space-y-6">
+    
+    <div class="bg-gradient-to-br from-red-600 to-orange-600 text-white p-6 rounded-3xl shadow-xl">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-2xl font-black tracking-wide">🏆 2026 年度誰賺最多</h2>
+        <span class="text-sm bg-black/30 px-3 py-1 rounded-full font-bold">即時更新</span>
+      </div>
+
+      <div class="flex bg-black/20 p-1 rounded-xl mb-4 gap-1 text-sm">
+        <button @click="leaderboardView = 'credit'" 
+                :class="leaderboardView === 'credit' ? 'bg-white text-orange-600 shadow-sm' : 'text-white hover:bg-white/10'"
+                class="flex-1 py-2 rounded-lg font-black transition-all text-center">
+          記帳戰
+        </button>
+        <button @click="leaderboardView = 'cash'" 
+                :class="leaderboardView === 'cash' ? 'bg-white text-orange-600 shadow-sm' : 'text-white hover:bg-white/10'"
+                class="flex-1 py-2 rounded-lg font-black transition-all text-center">
+          現金戰
+        </button>
+        <button @click="leaderboardView = 'all'" 
+                :class="leaderboardView === 'all' ? 'bg-white text-orange-600 shadow-sm' : 'text-white hover:bg-white/10'"
+                class="flex-1 py-2 rounded-lg font-black transition-all text-center">
+          整體總和
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        <div v-for="(leader, idx) in leaderBoard" :key="leader.id" 
+             class="bg-white text-gray-900 p-4 rounded-2xl flex justify-between items-center border-2 border-amber-400 shadow-sm">
+          <span class="font-black text-2xl text-gray-800">{{ idx + 1 }}. {{ leader.name }}</span>
+          <span :class="leader.total >= 0 ? 'text-green-700' : 'text-red-600'" class="font-black text-3xl">
+            {{ leader.total >= 0 ? '贏' : '輸' }} {{ Math.abs(leader.total) }} 元
+          </span>
+        </div>
+        <div v-if="users.length === 0" class="text-center text-lg text-white/80 py-4 font-bold">目前沒有名單</div>
+      </div>
+    </div>
+
+    <div v-if="isLoggedIn" id="record-zone" class="space-y-4 scroll-mt-6">
+      <div class="flex bg-gray-300 p-2 rounded-2xl gap-2">
+        <button @click="currentTab = 'record'" 
+                :class="currentTab === 'record' ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-200 text-gray-700'"
+                class="flex-1 py-4 text-xl font-black rounded-xl transition-all">
+          📝 登記輸贏
+        </button>
+        <button @click="currentTab = 'users'" 
+                :class="currentTab === 'users' ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-200 text-gray-700'"
+                class="flex-1 py-4 text-xl font-black rounded-xl transition-all">
+          👥 增減牌咖
+        </button>
+      </div>
+
+      <div v-if="currentTab === 'record'" class="bg-white p-5 rounded-3xl shadow-md border-4 border-orange-400">
+        <h3 class="font-black text-gray-800 mb-4 text-center text-2xl border-b-2 border-gray-100 pb-2">
+          {{ isEditing ? '🔥 正在修改這場歷史紀錄' : '➕ 輸入今天總結輸贏' }}
+        </h3>
+        <div class="grid grid-cols-1 gap-3 mb-5">
+          <div>
+            <label class="block text-sm font-black text-gray-500 mb-1">📅 打牌日期</label>
+            <input type="date" v-model="currentForm.date" class="w-full bg-gray-100 p-4 rounded-xl border-2 border-gray-300 text-xl font-bold">
+          </div>
+          <div>
+            <label class="block text-sm font-black text-gray-500 mb-1">⚔️ 對戰種類</label>
+            <select v-model="currentForm.match_type" class="w-full bg-amber-50 p-4 rounded-xl border-2 border-amber-300 text-xl font-bold text-gray-800">
+              <option value="credit">記帳戰 (下期結算)</option>
+              <option value="cash">現金戰 (現場付清)</option>
+            </select>
+          </div>
+          </div>
+
+        <label class="block text-sm font-black text-gray-500 mb-2">💰 請選擇今天有下場的玩家與最終輸贏</label>
+        <div v-for="(record, index) in currentForm.records" :key="index" class="flex items-center space-x-2 mb-4 bg-gray-50 p-2 rounded-2xl border border-gray-200 shadow-sm">
+          <select v-model="record.user_id" class="bg-amber-50 border-2 border-amber-300 p-3 rounded-xl flex-1 text-xl font-black text-gray-800 h-16">
+            <option value="" disabled>選牌咖</option>
+            <option v-for="user in users" :key="user.id" :value="user.id" :disabled="currentForm.records.some(r => r.user_id === user.id) && record.user_id !== user.id">
+              {{ user.name }} {{ currentForm.records.some(r => r.user_id === user.id) && record.user_id !== user.id ? ' (已選)' : '' }}
+            </option>
+          </select>
+          <button @click="toggleSign(index)" type="button" :class="(record.score || 0) >= 0 ? 'bg-green-100 border-green-500 text-green-700' : 'bg-red-100 border-red-500 text-red-700'" class="w-14 h-16 border-2 rounded-xl flex items-center justify-center font-black text-xl active:scale-90">
+            {{ (record.score || 0) >= 0 ? '➕' : '➖' }}
+          </button>
+          <input type="number" inputmode="decimal" v-model.number="record.score" placeholder="0" class="bg-white border-2 border-gray-300 p-3 rounded-xl w-24 text-center font-black text-xl text-gray-900 h-16">
+          <button @click="removeRecordField(index)" type="button" v-if="currentForm.records.length > 1" class="w-12 h-16 bg-gray-200 border-2 border-gray-400 text-gray-700 rounded-xl flex items-center justify-center font-black text-lg active:scale-90">❌</button>
+        </div>
+
+        <button @click="addRecordField" type="button" class="w-full my-4 py-4 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white rounded-2xl text-xl font-black shadow-md border-2 border-amber-300">
+          ➕ 點我增加「第 {{ currentForm.records.length + 1 }} 位」有打的人
+        </button>
+
+        <div class="flex flex-col space-y-3 mt-6 pt-4 border-t-2 border-gray-100">
+          <button @click="autoBalance" class="w-full bg-blue-600 active:scale-95 text-white p-3 rounded-xl text-lg font-black shadow-md">⚖️ 幫我自動算最後一個人的錢</button>
+          <div class="text-center p-3 rounded-xl font-black text-lg" :class="isBalanced ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'">
+            Currently sum: {{ currentTotalScore }} <br>
+            <span class="text-xl">{{ isBalanced ? '✅ 金額正確（剛好歸零）' : '❌ 金額不對！加起來必須是 0' }}</span>
+          </div>
+        </div>
+
+        <button @click="submitGame" :disabled="!isBalanced" class="w-full mt-5 p-5 rounded-2xl font-black text-2xl text-white shadow-lg transition-all duration-200" :class="isBalanced ? 'bg-orange-500 active:scale-95 shadow-orange-200' : 'bg-gray-300 cursor-not-allowed'">
+          {{ isEditing ? '💾 確定修改資料' : '🚀 記好這場總帳，送出！' }}
+        </button>
+        <button v-if="isEditing" @click="cancelEdit" class="w-full mt-3 text-lg text-red-500 font-black py-2 underline">❌ 取消修改</button>
+      </div>
+
+      <div v-if="currentTab === 'users'" class="bg-white p-5 rounded-3xl shadow-md border-4 border-orange-400">
+        <h3 class="font-black text-gray-800 mb-4 text-center text-2xl border-b-2 border-gray-100 pb-2">👥 增加或調整牌咖順序</h3>
+        <div class="flex flex-col gap-2 mb-4">
+          <input type="text" v-model="userForm.name" placeholder="輸入新牌咖名字" class="bg-gray-100 p-4 rounded-xl border-2 border-gray-300 text-xl font-bold">
+          <button @click="submitUser" :disabled="!userForm.name.trim()" class="w-full p-4 bg-emerald-600 text-white rounded-xl text-xl font-black active:scale-95 disabled:bg-gray-300">
+            {{ userForm.id ? '💾 確定改名' : '➕ 把這個人加進名冊' }}
+          </button>
+        </div>
+        <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+          <div v-for="(user, idx) in users" :key="user.id" :class="idx < 4 ? 'border-amber-400 bg-amber-50/50' : 'border-gray-200 bg-gray-50'" class="flex justify-between items-center p-3 rounded-xl border-2 shadow-sm">
+            <div class="flex items-center space-x-2">
+              <span class="text-sm font-black bg-gray-300 px-2 py-0.5 rounded-md text-gray-700">{{ idx + 1 }}</span>
+              <span class="text-xl font-black text-gray-800">{{ user.name }}</span>
+            </div>
+            <div class="flex items-center space-x-1">
+              <button @click="moveUserOrder(idx, -1)" :disabled="idx === 0" class="bg-white border border-gray-300 px-2 py-1 rounded-lg text-base disabled:opacity-30">⬆️</button>
+              <button @click="moveUserOrder(idx, 1)" :disabled="idx === users.length - 1" class="bg-white border border-gray-300 px-2 py-1 rounded-lg text-base disabled:opacity-30">⬇️</button>
+              <button @click="editUser(user)" class="bg-blue-100 text-blue-800 px-3 py-1 rounded-lg text-base font-black ml-2 active:scale-90">改名</button>
+              <button @click="deleteUser(user.id)" class="bg-red-100 text-red-700 px-3 py-1 rounded-lg text-base font-black active:scale-90">❌</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <button @click="toggleHistorySection" 
+              class="w-full p-4 bg-gray-800 text-white rounded-2xl font-black text-xl flex justify-between items-center shadow-md active:scale-98 transition-all">
+        <span>📅 歷史戰記紀錄表</span>
+        <span class="text-base font-bold bg-white/20 px-3 py-1 rounded-full">
+          {{ showHistorySection ? '🔼 收起區塊' : '🔽 點擊查看' }}
+        </span>
+      </button>
+
+      <div v-if="showHistorySection" class="space-y-3">
+        <div v-for="m in [12,11,10,9,8,7,6,5,4,3,2,1]" :key="m" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          
+          <button @click="toggleMonthLazy(m)" 
+                  :class="monthCounts[m] > 0 ? 'bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-400'"
+                  class="w-full p-4 font-black text-xl flex justify-between items-center transition-all border-b border-gray-200/50">
+            <span>📅 {{ m }} 月份紀錄 <span class="text-base font-bold text-gray-500">({{ monthCounts[m] || 0 }} 場)</span></span>
+            <span class="text-sm font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md" v-if="loadingMonths[m]">載入中...</span>
+            <span class="text-lg font-bold" v-else>{{ expandedMonths[m] ? '🔼 收起' : '🔽 展開' }}</span>
+          </button>
+
+          <div v-if="expandedMonths[m]" class="divide-y divide-gray-100 bg-white">
+            <div v-if="getGamesByMonth(m).length === 0" class="p-5 text-center text-gray-400 text-base font-bold">
+              🀄 這個月大家都沒開檯紀錄
+            </div>
+
+            <div v-for="game in getGamesByMonth(m)" :key="game.id" 
+                 class="p-3 flex items-center justify-between hover:bg-gray-50 transition-all gap-2">
+              
+              <div class="flex flex-col min-w-[75px] shrink-0">
+                <span class="text-xl font-black text-gray-800 leading-tight">
+                  {{ game.date.split('-')[1] }}/{{ game.date.split('-')[2] }}
+                </span>
+                <span :class="game.match_type === 'cash' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'"
+                      class="text-[11px] text-center font-black border px-1 rounded mt-0.5">
+                  {{ game.match_type === 'cash' ? '現金戰' : '記帳戰' }}
+                </span>
+                <span v-if="game.note" 
+                      class="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded mt-0.5 truncate max-w-[80px]" 
+                      :title="game.note">
+                  👤 {{ game.note.split('@')[0] }}
+                </span>
+              </div>
+
+              <div class="flex flex-wrap gap-1 flex-1 items-center">
+                <span v-for="detail in game.details" :key="detail.id" 
+                      :class="detail.score >= 0 ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-600 border-red-200'"
+                      class="text-sm font-black border px-1.5 py-0.5 rounded-md whitespace-nowrap">
+                  {{ detail.user_name }}:{{ detail.score >= 0 ? '+' : '' }}{{ detail.score }}
+                </span>
+              </div>
+
+              <div v-if="isLoggedIn" class="flex space-x-1 shrink-0 pl-1">
+                <button @click="startEdit(game)" class="bg-blue-50 hover:bg-blue-100 text-blue-700 w-8 h-8 rounded-lg text-sm font-black flex items-center justify-center active:scale-90 border border-blue-200">改</button>
+                <button @click="deleteGame(game.id)" class="bg-red-50 hover:bg-red-100 text-red-700 w-8 h-8 rounded-lg text-sm font-black flex items-center justify-center active:scale-90 border border-red-200">刪</button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center mt-10 pb-16">
+      <button v-if="!isLoggedIn" @click="promptLogin" class="text-lg text-gray-400 font-black tracking-wider hover:text-gray-500 underline">⚙️ 管理員登入點這裡</button>
+      <div v-else class="flex flex-col items-center space-y-3">
+        <span class="text-lg bg-emerald-100 text-emerald-800 px-5 py-2 rounded-full font-black border-2 border-emerald-400">🔒 已開通管理員權限</span>
+        <button @click="logout" class="text-lg text-red-500 font-black hover:text-red-600 underline">離開管理模式（登出）</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBcbhgE6RbInPV2t9vEvmyszO4y98T6dz8",
+      authDomain: "mj-26d77.firebaseapp.com",
+      projectId: "mj-26d77",
+      storageBucket: "mj-26d77.firebasestorage.app",
+      messagingSenderId: "280964083300",
+      appId: "1:280964083300:web:7161e7af6037a99d79f971"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    Vue.createApp({
+      data() {
+        return {
+          isLoggedIn: false,
+          isEditing: false,
+          editingGameId: null,
+          currentTab: 'record', 
+          leaderboardView: 'credit', 
+          users: [],       
+          games: [],       
+          details: [],     
+          
+          showHistorySection: false, 
+          expandedMonths: {},        
+          loadingMonths: {},         
+          monthCounts: {},           
+          
+          currentForm: {
+            date: new Date().toISOString().split('T')[0],
+            match_type: 'credit', 
+            note: '', // 備註欄位由後台直接代入登入者的 Email 帳號
+            records: [
+              { user_id: '', score: 0 }, { user_id: '', score: 0 },
+              { user_id: '', score: 0 }, { user_id: '', score: 0 }
+            ]
+          },
+          userForm: { id: null, name: '' }
+        }
+      },
+      computed: {
+        currentTotalScore() {
+          return this.currentForm.records.reduce((sum, r) => sum + (r.score || 0), 0);
+        },
+        isBalanced() {
+          const userIds = this.currentForm.records.map(r => r.user_id).filter(id => id !== '');
+          const hasDuplicates = new Set(userIds).size !== userIds.length;
+          return this.currentTotalScore === 0 && userIds.length === this.currentForm.records.length && !hasDuplicates;
+        },
+        enhancedGames() {
+          return this.games.map(game => {
+            const gameDetails = this.details
+              .filter(d => d.game_id === game.id)
+              .map(d => {
+                const user = this.users.find(u => u.id === d.user_id);
+                return { ...d, user_name: user ? user.name : '已除名玩家' };
+              });
+            return { ...game, details: gameDetails };
+          });
+        },
+        leaderBoard() {
+          let scoresMap = {};
+          this.users.forEach(u => scoresMap[u.id] = { name: u.name, total: 0 });
+          
+          this.details.forEach(d => {
+            if (scoresMap[d.user_id]) {
+              if (this.leaderboardView === 'all') {
+                scoresMap[d.user_id].total += d.score;
+              } else if (this.leaderboardView === 'credit' && d.match_type !== 'cash') {
+                scoresMap[d.user_id].total += d.score;
+              } else if (this.leaderboardView === 'cash' && d.match_type === 'cash') {
+                scoresMap[d.user_id].total += d.score;
+              }
+            }
+          });
+
+          return this.users
+            .map(u => ({ id: u.id, name: u.name, total: scoresMap[u.id] ? scoresMap[u.id].total : 0 }))
+            .sort((a, b) => b.total - a.total);
+        }
+      },
+      methods: {
+        toggleHistorySection() {
+          this.showHistorySection = !this.showHistorySection;
+          if (this.showHistorySection) {
+            this.fetchMonthCounts(); 
+          }
+        },
+        async fetchMonthCounts() {
+          for (let m = 1; m <= 12; m++) {
+            const startStr = `2026-${String(m).padStart(2, '0')}-01`;
+            const endStr = m === 12 ? '2027-01-01' : `2026-${String(m+1).padStart(2, '0')}-01`;
+            
+            db.collection("games")
+              .where("date", ">=", startStr)
+              .where("date", "<", endStr)
+              .onSnapshot(snap => {
+                this.monthCounts[m] = snap.size; 
+              });
+          }
+        },
+        async toggleMonthLazy(monthNum) {
+          if (this.expandedMonths[monthNum]) {
+            this.expandedMonths[monthNum] = false;
+            return;
+          }
+
+          this.loadingMonths[monthNum] = true;
+          const startStr = `2026-${String(monthNum).padStart(2, '0')}-01`;
+          const endStr = monthNum === 12 ? '2027-01-01' : `2026-${String(monthNum+1).padStart(2, '0')}-01`;
+
+          try {
+            const gamesSnap = await db.collection("games")
+              .where("date", ">=", startStr)
+              .where("date", "<", endStr)
+              .get();
+
+            const monthGames = gamesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            monthGames.forEach(mg => {
+              if(!this.games.some(g => g.id === mg.id)) {
+                this.games.push(mg);
+              }
+            });
+
+            for (let game of monthGames) {
+              const detailsSnap = await db.collection("game_details")
+                .where("game_id", "==", game.id)
+                .get();
+              
+              detailsSnap.docs.forEach(doc => {
+                const dData = { id: doc.id, ...doc.data() };
+                if(!this.details.some(d => d.id === dData.id)) {
+                  this.details.push(dData);
+                }
+              });
+            }
+
+            this.expandedMonths[monthNum] = true;
+          } catch (error) {
+            console.error("讀取歷史紀錄失敗:", error);
+          } finally {
+            this.loadingMonths[monthNum] = false;
+          }
+        },
+        getGamesByMonth(monthNum) {
+          return this.enhancedGames.filter(game => {
+            if(!game.date) return false;
+            const m = parseInt(game.date.split('-')[1], 10);
+            return m === monthNum;
+          });
+        },
+        addRecordField() {
+          this.currentForm.records.push({ user_id: '', score: 0 });
+        },
+        removeRecordField(index) {
+          this.currentForm.records.splice(index, 1);
+        },
+        toggleSign(index) {
+          let val = this.currentForm.records[index].score || 0;
+          this.currentForm.records[index].score = val === 0 ? -0 : -val;
+        },
+        autoBalance() {
+          const len = this.currentForm.records.length;
+          if (len < 2) return;
+          let currentSum = this.currentForm.records.slice(0, len - 1).reduce((sum, r) => sum + (r.score || 0), 0);
+          this.currentForm.records[len - 1].score = -currentSum;
+        },
+        listenToDatabase() {
+          db.collection("users").orderBy("sort_order", "asc").onSnapshot(snap => {
+            this.users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            this.syncFormDefaultUsers();
+          });
+          
+          db.collection("game_details").get().then(snap => {
+            this.details = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          });
+        },
+        syncFormDefaultUsers() {
+          if(this.users.length >= 4 && !this.isEditing && this.currentForm.records.length === 4) {
+            for(let i=0; i<4; i++) {
+              if(!this.currentForm.records[i].user_id) {
+                this.currentForm.records[i].user_id = this.users[i].id;
+              }
+            }
+          }
+        },
+        checkAdminPermission() {
+          if (!this.isLoggedIn) {
+            alert("🚨 權限拒絕！請先進行管理員登入。");
+            return false;
+          }
+          return true;
+        },
+        async moveUserOrder(currentIndex, direction) {
+          if (!this.checkAdminPermission()) return;
+          const targetIndex = currentIndex + direction;
+          if (targetIndex < 0 || targetIndex >= this.users.length) return;
+          let tempUsers = [...this.users];
+          const movedUser = tempUsers.splice(currentIndex, 1)[0];
+          tempUsers.splice(targetIndex, 0, movedUser);
+          const batch = db.batch();
+          tempUsers.forEach((user, idx) => {
+            batch.update(db.collection("users").doc(user.id), { sort_order: idx });
+          });
+          await batch.commit();
+        },
+        async submitUser() {
+          if (!this.checkAdminPermission()) return;
+          const name = this.userForm.name.trim();
+          if(!name) return;
+          if (this.userForm.id) {
+            await db.collection("users").doc(this.userForm.id).update({ name: name });
+          } else {
+            await db.collection("users").add({ name: name, sort_order: this.users.length });
+          }
+          this.userForm.id = null; this.userForm.name = '';
+        },
+        editUser(user) { 
+          if (!this.checkAdminPermission()) return;
+          this.userForm.id = user.id; this.userForm.name = user.name; 
+        },
+        async deleteUser(id) {
+          if (!this.checkAdminPermission()) return;
+          if (confirm("🚨 注意！確認將此玩家除名？")) { await db.collection("users").doc(id).delete(); }
+        },
+        async submitGame() {
+          if (!this.checkAdminPermission()) return;
+          if (!this.isBalanced) return;
+
+          // 核心更動：強制抓取當前登入管理員的 Email 作為備註
+          const adminEmail = auth.currentUser ? auth.currentUser.email : "未知管理員";
+
+          const batch = db.batch();
+          let gameRef;
+
+          if (this.isEditing) {
+            gameRef = db.collection("games").doc(this.editingGameId);
+            batch.update(gameRef, { 
+              date: this.currentForm.date, 
+              note: adminEmail, // 修改時同步更新為執行修改的管理員 Email
+              match_type: this.currentForm.match_type 
+            });
+            const oldDetails = this.details.filter(d => d.game_id === this.editingGameId);
+            oldDetails.forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
+          } else {
+            gameRef = db.collection("games").doc();
+            batch.set(gameRef, { 
+              date: this.currentForm.date, 
+              note: adminEmail, // 新增時自動綁定建立者的 Email
+              match_type: this.currentForm.match_type 
+            });
+          }
+
+          this.currentForm.records.forEach(r => {
+            const detailRef = db.collection("game_details").doc();
+            batch.set(detailRef, { 
+              game_id: gameRef.id, 
+              user_id: r.user_id, 
+              score: Number(r.score),
+              match_type: this.currentForm.match_type 
+            });
+          });
+
+          await batch.commit();
+
+          const freshDetailsSnap = await db.collection("game_details").get();
+          this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          this.fetchMonthCounts();
+          this.cancelEdit();
+        },
+        startEdit(game) {
+          if (!this.checkAdminPermission()) return;
+          this.isEditing = true;
+          this.editingGameId = game.id;
+          this.currentForm.date = game.date;
+          this.currentForm.match_type = game.match_type || 'credit'; 
+          this.currentTab = 'record'; 
+          const gameDetails = this.details.filter(d => d.game_id === game.id);
+          this.currentForm.records = gameDetails.map(d => ({ user_id: d.user_id, score: d.score }));
+          
+          this.$nextTick(() => {
+            const el = document.getElementById('record-zone');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        },
+        async deleteGame(id) {
+          if (!this.checkAdminPermission()) return;
+          if (confirm("認真要刪除這場紀錄？")) {
+            const batch = db.batch();
+            batch.delete(db.collection("games").doc(id));
+            this.details.filter(d => d.game_id === id).forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
+            await batch.commit();
+
+            const freshDetailsSnap = await db.collection("game_details").get();
+            this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            this.fetchMonthCounts();
+          }
+        },
+        cancelEdit() {
+          this.isEditing = false; this.editingGameId = null;
+          this.currentForm.date = new Date().toISOString().split('T')[0];
+          this.currentForm.match_type = 'credit'; 
+          this.currentForm.note = '';
+          this.currentForm.records = [
+            { user_id: '', score: 0 }, { user_id: '', score: 0 },
+            { user_id: '', score: 0 }, { user_id: '', score: 0 }
+          ];
+          this.syncFormDefaultUsers();
+        },
+        async promptLogin() {
+          let email = prompt("輸入管理者帳號");
+          let password = prompt("輸入密碼");
+          if (!email || !password) return;
+          try { 
+            await auth.signInWithEmailAndPassword(email, password); 
+          } catch (e) { 
+            alert("登入失敗，原因：" + e.message); 
+          }
+        },
+        async logout() { await auth.signOut(); this.currentTab = 'record'; }
+      },
+      mounted() {
+        auth.onAuthStateChanged(user => { this.isLoggedIn = !!user; });
+        this.listenToDatabase();
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
