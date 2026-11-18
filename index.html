@@ -269,7 +269,7 @@
     window.ENABLE_APP_CHECK = true; // 填入網站金鑰後，把這裡改成 true
     
     firebase.initializeApp(window.firebaseConfig);
-    if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY !== '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ') {
+    if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY) {
       firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY), true);
     }
 
@@ -287,7 +287,7 @@
       // 建立獨立具名 App 實例 "ai-module-app"，不與上方 compat 版打架
       const aiApp = initializeApp(window.firebaseConfig, "ai-module-app");
 
-      if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY !== '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ') {
+      if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY) {
         initializeAppCheck(aiApp, {
           provider: new ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY),
           isTokenAutoRefreshEnabled: true
@@ -303,7 +303,7 @@
         });
       };
 
-      // 通知 Vue 畫面 AI 模組已就緒
+      window.isGeminiAiReady = true;
       window.dispatchEvent(new Event('gemini-ai-ready'));
     } catch (err) {
       window.aiInitError = err.message;
@@ -771,9 +771,19 @@
         }
       },
       mounted() {
-        window.addEventListener('gemini-ai-ready', () => {
+        if (window.isGeminiAiReady || typeof window.initGeminiModel === 'function') {
           this.aiReady = true;
-        });
+        } else {
+          window.addEventListener('gemini-ai-ready', () => { this.aiReady = true; });
+          const checkTimer = setInterval(() => {
+            if (window.isGeminiAiReady || typeof window.initGeminiModel === 'function') {
+              this.aiReady = true;
+              clearInterval(checkTimer);
+            } else if (window.aiInitError) {
+              clearInterval(checkTimer);
+            }
+          }, 300);
+        }
         if (!this.availableYears.includes(this.selectedYear)) {
           this.availableYears.push(this.selectedYear);
           this.availableYears.sort((a, b) => a - b);
