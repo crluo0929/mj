@@ -6,10 +6,10 @@
   <title>🏆 四方風雲錄</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-check-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-check-compat.js"></script>
   <style>
     body { font-size: 22px; line-height: 1.6; }
     input, select, button { font-size: 24px !important; font-weight: bold !important; }
@@ -253,7 +253,7 @@
 
   </div>
 
-  <!-- Firebase Compat 初始化（供 Auth / Firestore 使用） -->
+  <!-- Firebase Compat 初始化（供 Auth / Firestore / App Check 使用） -->
   <script>
     window.firebaseConfig = {
       apiKey: "AIzaSyBcbhgE6RbInPV2t9vEvmyszO4y98T6dz8",
@@ -264,9 +264,8 @@
       appId: "1:280964083300:web:7161e7af6037a99d79f971"
     };
 
-    // ⚠️【重要設定】若要啟用 App Check，請將下方 '請貼上你的網站金鑰_SITE_KEY' 替換為你的網站金鑰 (6LeRuiYu...) 並拿掉最前面的 //
     window.RECAPTCHA_SITE_KEY = '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ';
-    window.ENABLE_APP_CHECK = true; // 填入網站金鑰後，把這裡改成 true
+    window.ENABLE_APP_CHECK = true;
     
     firebase.initializeApp(window.firebaseConfig);
     if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY) {
@@ -277,23 +276,13 @@
     const auth = firebase.auth();
   </script>
 
-  <!-- 官方 ESM 獨立實例載入 Firebase AI Logic SDK（徹底避免與 compat 版衝突出錯） -->
+  <!-- 官方 ESM 獨立實例載入 Firebase AI Logic SDK（v11.8.0 起正式支援 firebase-ai.js，且避免重複初始化 App Check 衝突） -->
   <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
-    import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app-check.js";
-    import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-ai.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-app.js";
+    import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-ai.js";
 
     try {
-      // 建立獨立具名 App 實例 "ai-module-app"，不與上方 compat 版打架
       const aiApp = initializeApp(window.firebaseConfig, "ai-module-app");
-
-      if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY) {
-        initializeAppCheck(aiApp, {
-          provider: new ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY),
-          isTokenAutoRefreshEnabled: true
-        });
-      }
-
       const ai = getAI(aiApp, { backend: new GoogleAIBackend() });
 
       window.initGeminiModel = (generationConfig) => {
