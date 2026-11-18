@@ -261,9 +261,9 @@
     
     firebase.initializeApp(firebaseConfig);
 
-    // ⚠️【重要設定】請將下方 '請貼上你的網站金鑰_SITE_KEY' 替換為你的 reCAPTCHA 網站金鑰 (6LeRuiYu...那串)
+    // ⚠️【重要設定】請將下方 '請貼上你的網站金鑰_SITE_KEY' 替換為你的 reCAPTCHA 網站金鑰
     // 若尚未啟用 App Check 或還在測試，請保持下方這行註解狀態；啟用後把最前面的 // 拿掉並填入 Site Key 即可
-    // firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider('請貼上你的網站金鑰_SITE_KEY'), true);
+    // firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider('6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ'), true);
 
     const db = firebase.firestore();
     const auth = firebase.auth();
