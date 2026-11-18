@@ -10,7 +10,6 @@
   <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-app-check-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.6.0/firebase-ai-compat.js"></script>
   <style>
     body { font-size: 22px; line-height: 1.6; }
     input, select, button { font-size: 24px !important; font-weight: bold !important; }
@@ -249,6 +248,7 @@
 
   </div>
 
+  <!-- Firebase 初始化 -->
   <script>
     const firebaseConfig = {
       apiKey: "AIzaSyBcbhgE6RbInPV2t9vEvmyszO4y98T6dz8",
@@ -261,13 +261,30 @@
     
     firebase.initializeApp(firebaseConfig);
 
-    // ⚠️【重要設定】請將下方 '請貼上你的網站金鑰_SITE_KEY' 替換為你的 reCAPTCHA 網站金鑰
     // 若尚未啟用 App Check 或還在測試，請保持下方這行註解狀態；啟用後把最前面的 // 拿掉並填入 Site Key 即可
     // firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider('6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ'), true);
 
     const db = firebase.firestore();
     const auth = firebase.auth();
+  </script>
 
+  <!-- 官方 ESM 載入 Firebase AI Logic SDK（解決 compat 版無 firebase.ai() 問題） -->
+  <script type="module">
+    import { getApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-ai.js";
+
+    window.initGeminiModel = (generationConfig) => {
+      const app = getApp();
+      const ai = getAI(app, { backend: new GoogleAIBackend() });
+      return getGenerativeModel(ai, {
+        model: "gemini-2.5-flash",
+        generationConfig
+      });
+    };
+  </script>
+
+  <!-- Vue 主程式 -->
+  <script>
     Vue.createApp({
       data() {
         const currentYear = new Date().getFullYear();
@@ -670,30 +687,30 @@
           this.isAiParsing = true;
 
           try {
-            const ai = firebase.ai();
-            const model = ai.getGenerativeModel({
-              model: "gemini-2.5-flash",
-              generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                  type: "object",
-                  properties: {
-                    date: { type: "string", description: "YYYY-MM-DD 格式日期" },
-                    match_type: { type: "string", enum: ["credit", "cash"], description: "記帳戰為 credit，現金戰為 cash，未提及預設 credit" },
-                    records: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          user_id: { type: "string", description: "必須對應提供的牌咖 ID" },
-                          score: { type: "number", description: "贏錢為正數，輸錢為負數；若有提到『剩下的某人補齊』，請自動計算出讓總和為 0 的金額" }
-                        },
-                        required: ["user_id", "score"]
-                      }
+            if (typeof window.initGeminiModel !== 'function') {
+              throw new Error("AI 模組尚未載入完成，請稍候兩秒再試一次。");
+            }
+
+            const model = window.initGeminiModel({
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: "object",
+                properties: {
+                  date: { type: "string", description: "YYYY-MM-DD 格式日期" },
+                  match_type: { type: "string", enum: ["credit", "cash"], description: "記帳戰為 credit，現金戰為 cash，未提及預設 credit" },
+                  records: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        user_id: { type: "string", description: "必須對應提供的牌咖 ID" },
+                        score: { type: "number", description: "贏錢為正數，輸錢為負數；若有提到『剩下的某人補齊』，請自動計算出讓總和為 0 的金額" }
+                      },
+                      required: ["user_id", "score"]
                     }
-                  },
-                  required: ["date", "match_type", "records"]
-                }
+                  }
+                },
+                required: ["date", "match_type", "records"]
               }
             });
 
