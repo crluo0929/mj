@@ -6,10 +6,6 @@
   <title>🏆 四方風雲錄</title>
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/11.8.0/firebase-app-check-compat.js"></script>
   <style>
     body { font-size: 22px; line-height: 1.6; }
     input, select, button { font-size: 24px !important; font-weight: bold !important; }
@@ -253,9 +249,18 @@
 
   </div>
 
-  <!-- Firebase Compat 初始化（供 Auth / Firestore / App Check 使用） -->
-  <script>
-    window.firebaseConfig = {
+  <!-- 統一使用 Firebase v11.8.0 ES Module（單一 App 實例共享 Auth、Firestore、App Check 與 AI Logic） -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-app.js";
+    import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-app-check.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, query, where, orderBy,
+      onSnapshot, getDocs, addDoc, updateDoc, deleteDoc, writeBatch
+    } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-firestore.js";
+    import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-ai.js";
+
+    const firebaseConfig = {
       apiKey: "AIzaSyBcbhgE6RbInPV2t9vEvmyszO4y98T6dz8",
       authDomain: "mj-26d77.firebaseapp.com",
       projectId: "mj-26d77",
@@ -264,44 +269,21 @@
       appId: "1:280964083300:web:7161e7af6037a99d79f971"
     };
 
-    window.RECAPTCHA_SITE_KEY = '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ';
-    window.ENABLE_APP_CHECK = true;
-    
-    firebase.initializeApp(window.firebaseConfig);
-    if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY) {
-      firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY), true);
-    }
+    const RECAPTCHA_SITE_KEY = '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ';
 
-    const db = firebase.firestore();
-    const auth = firebase.auth();
-  </script>
+    // 1. 初始化唯一 Firebase App 實例
+    const app = initializeApp(firebaseConfig);
 
-  <!-- 官方 ESM 獨立實例載入 Firebase AI Logic SDK（v11.8.0 起正式支援 firebase-ai.js，且避免重複初始化 App Check 衝突） -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-app.js";
-    import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.8.0/firebase-ai.js";
+    // 2. 在此唯一實例上啟用 App Check，讓所有服務（含 AI Logic）自動攜帶有效 Token
+    initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY),
+      isTokenAutoRefreshEnabled: true
+    });
 
-    try {
-      const aiApp = initializeApp(window.firebaseConfig, "ai-module-app");
-      const ai = getAI(aiApp, { backend: new GoogleAIBackend() });
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const ai = getAI(app, { backend: new GoogleAIBackend() });
 
-      window.initGeminiModel = (generationConfig) => {
-        return getGenerativeModel(ai, {
-          model: "gemini-2.5-flash",
-          generationConfig
-        });
-      };
-
-      window.isGeminiAiReady = true;
-      window.dispatchEvent(new Event('gemini-ai-ready'));
-    } catch (err) {
-      window.aiInitError = err.message;
-      console.error("Firebase AI 模組初始化失敗:", err);
-    }
-  </script>
-
-  <!-- Vue 主程式 -->
-  <script>
     Vue.createApp({
       data() {
         const currentYear = new Date().getFullYear();
@@ -309,37 +291,37 @@
           isLoggedIn: false,
           isEditing: false,
           editingGameId: null,
-          currentTab: 'record', 
-          leaderboardView: 'credit', 
-          
+          currentTab: 'record',
+          leaderboardView: 'credit',
+
           selectedYear: currentYear,
           availableYears: [2026, 2027, 2028, 2029, 2030],
           monthUnsubscribers: [],
 
-          users: [],       
-          games: [],       
-          details: [],     
-          
-          showHistorySection: false, 
-          expandedMonths: {},        
-          loadingMonths: {},         
-          monthCounts: {},           
-          
+          users: [],
+          games: [],
+          details: [],
+
+          showHistorySection: false,
+          expandedMonths: {},
+          loadingMonths: {},
+          monthCounts: {},
+
           currentForm: {
             date: new Date().toISOString().split('T')[0],
-            match_type: 'credit', 
-            note: '', 
+            match_type: 'credit',
+            note: '',
             records: [
               { user_id: '', score: 0 }, { user_id: '', score: 0 },
               { user_id: '', score: 0 }, { user_id: '', score: 0 }
             ]
           },
           userForm: { id: null, name: '' },
-          aiReady: typeof window.initGeminiModel === 'function',
+          aiReady: true,
           aiPromptText: '',
           isRecording: false,
           isAiParsing: false
-        }
+        };
       },
       computed: {
         currentTotalScore() {
@@ -364,7 +346,7 @@
         leaderBoard() {
           let scoresMap = {};
           this.users.forEach(u => scoresMap[u.id] = { name: u.name, total: 0 });
-          
+
           this.details.forEach(d => {
             const recordYear = d.year ? Number(d.year) : (d.date ? Number(d.date.split('-')[0]) : 2026);
             if (recordYear !== this.selectedYear) return;
@@ -396,7 +378,7 @@
         toggleHistorySection() {
           this.showHistorySection = !this.showHistorySection;
           if (this.showHistorySection) {
-            this.fetchMonthCounts(); 
+            this.fetchMonthCounts();
           }
         },
         clearMonthListeners() {
@@ -408,14 +390,12 @@
           const year = this.selectedYear;
           for (let m = 1; m <= 12; m++) {
             const startStr = `${year}-${String(m).padStart(2, '0')}-01`;
-            const endStr = m === 12 ? `${year + 1}-01-01` : `${year}-${String(m+1).padStart(2, '0')}-01`;
-            
-            const unsub = db.collection("games")
-              .where("date", ">=", startStr)
-              .where("date", "<", endStr)
-              .onSnapshot(snap => {
-                this.monthCounts[m] = snap.size; 
-              });
+            const endStr = m === 12 ? `${year + 1}-01-01` : `${year}-${String(m + 1).padStart(2, '0')}-01`;
+
+            const q = query(collection(db, "games"), where("date", ">=", startStr), where("date", "<", endStr));
+            const unsub = onSnapshot(q, snap => {
+              this.monthCounts[m] = snap.size;
+            });
             this.monthUnsubscribers.push(unsub);
           }
         },
@@ -428,30 +408,26 @@
           this.loadingMonths[monthNum] = true;
           const year = this.selectedYear;
           const startStr = `${year}-${String(monthNum).padStart(2, '0')}-01`;
-          const endStr = monthNum === 12 ? `${year + 1}-01-01` : `${year}-${String(monthNum+1).padStart(2, '0')}-01`;
+          const endStr = monthNum === 12 ? `${year + 1}-01-01` : `${year}-${String(monthNum + 1).padStart(2, '0')}-01`;
 
           try {
-            const gamesSnap = await db.collection("games")
-              .where("date", ">=", startStr)
-              .where("date", "<", endStr)
-              .get();
+            const qGames = query(collection(db, "games"), where("date", ">=", startStr), where("date", "<", endStr));
+            const gamesSnap = await getDocs(qGames);
+            const monthGames = gamesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-            const monthGames = gamesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
             monthGames.forEach(mg => {
-              if(!this.games.some(g => g.id === mg.id)) {
+              if (!this.games.some(g => g.id === mg.id)) {
                 this.games.push(mg);
               }
             });
 
             for (let game of monthGames) {
-              const detailsSnap = await db.collection("game_details")
-                .where("game_id", "==", game.id)
-                .get();
-              
-              detailsSnap.docs.forEach(doc => {
-                const dData = { id: doc.id, ...doc.data() };
-                if(!this.details.some(d => d.id === dData.id)) {
+              const qDetails = query(collection(db, "game_details"), where("game_id", "==", game.id));
+              const detailsSnap = await getDocs(qDetails);
+
+              detailsSnap.docs.forEach(d => {
+                const dData = { id: d.id, ...d.data() };
+                if (!this.details.some(item => item.id === dData.id)) {
                   this.details.push(dData);
                 }
               });
@@ -466,7 +442,7 @@
         },
         getGamesByMonth(monthNum) {
           return this.enhancedGames.filter(game => {
-            if(!game.date) return false;
+            if (!game.date) return false;
             const parts = game.date.split('-');
             const y = parseInt(parts[0], 10);
             const m = parseInt(parts[1], 10);
@@ -490,19 +466,20 @@
           this.currentForm.records[len - 1].score = -currentSum;
         },
         listenToDatabase() {
-          db.collection("users").orderBy("sort_order", "asc").onSnapshot(snap => {
-            this.users = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const qUsers = query(collection(db, "users"), orderBy("sort_order", "asc"));
+          onSnapshot(qUsers, snap => {
+            this.users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             this.syncFormDefaultUsers();
           });
-          
-          db.collection("game_details").get().then(snap => {
-            this.details = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+          getDocs(collection(db, "game_details")).then(snap => {
+            this.details = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           });
         },
         syncFormDefaultUsers() {
-          if(this.users.length >= 4 && !this.isEditing && this.currentForm.records.length === 4) {
-            for(let i=0; i<4; i++) {
-              if(!this.currentForm.records[i].user_id) {
+          if (this.users.length >= 4 && !this.isEditing && this.currentForm.records.length === 4) {
+            for (let i = 0; i < 4; i++) {
+              if (!this.currentForm.records[i].user_id) {
                 this.currentForm.records[i].user_id = this.users[i].id;
               }
             }
@@ -522,30 +499,34 @@
           let tempUsers = [...this.users];
           const movedUser = tempUsers.splice(currentIndex, 1)[0];
           tempUsers.splice(targetIndex, 0, movedUser);
-          const batch = db.batch();
+          const batch = writeBatch(db);
           tempUsers.forEach((user, idx) => {
-            batch.update(db.collection("users").doc(user.id), { sort_order: idx });
+            batch.update(doc(db, "users", user.id), { sort_order: idx });
           });
           await batch.commit();
         },
         async submitUser() {
           if (!this.checkAdminPermission()) return;
           const name = this.userForm.name.trim();
-          if(!name) return;
+          if (!name) return;
           if (this.userForm.id) {
-            await db.collection("users").doc(this.userForm.id).update({ name: name });
+            await updateDoc(doc(db, "users", this.userForm.id), { name: name });
           } else {
-            await db.collection("users").add({ name: name, sort_order: this.users.length });
+            await addDoc(collection(db, "users"), { name: name, sort_order: this.users.length });
           }
-          this.userForm.id = null; this.userForm.name = '';
+          this.userForm.id = null;
+          this.userForm.name = '';
         },
-        editUser(user) { 
+        editUser(user) {
           if (!this.checkAdminPermission()) return;
-          this.userForm.id = user.id; this.userForm.name = user.name; 
+          this.userForm.id = user.id;
+          this.userForm.name = user.name;
         },
         async deleteUser(id) {
           if (!this.checkAdminPermission()) return;
-          if (confirm("🚨 注意！確認將此玩家除名？")) { await db.collection("users").doc(id).delete(); }
+          if (confirm("🚨 注意！確認將此玩家除名？")) {
+            await deleteDoc(doc(db, "users", id));
+          }
         },
         async submitGame() {
           if (!this.checkAdminPermission()) return;
@@ -553,32 +534,32 @@
 
           const adminEmail = auth.currentUser ? auth.currentUser.email : "未知管理員";
           const gameYear = parseInt(this.currentForm.date.split('-')[0], 10);
-          const batch = db.batch();
+          const batch = writeBatch(db);
           let gameRef;
 
           if (this.isEditing) {
-            gameRef = db.collection("games").doc(this.editingGameId);
-            batch.update(gameRef, { 
-              date: this.currentForm.date, 
-              note: adminEmail, 
-              match_type: this.currentForm.match_type 
+            gameRef = doc(db, "games", this.editingGameId);
+            batch.update(gameRef, {
+              date: this.currentForm.date,
+              note: adminEmail,
+              match_type: this.currentForm.match_type
             });
             const oldDetails = this.details.filter(d => d.game_id === this.editingGameId);
-            oldDetails.forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
+            oldDetails.forEach(d => batch.delete(doc(db, "game_details", d.id)));
           } else {
-            gameRef = db.collection("games").doc();
-            batch.set(gameRef, { 
-              date: this.currentForm.date, 
-              note: adminEmail, 
-              match_type: this.currentForm.match_type 
+            gameRef = doc(collection(db, "games"));
+            batch.set(gameRef, {
+              date: this.currentForm.date,
+              note: adminEmail,
+              match_type: this.currentForm.match_type
             });
           }
 
           this.currentForm.records.forEach(r => {
-            const detailRef = db.collection("game_details").doc();
-            batch.set(detailRef, { 
-              game_id: gameRef.id, 
-              user_id: r.user_id, 
+            const detailRef = doc(collection(db, "game_details"));
+            batch.set(detailRef, {
+              game_id: gameRef.id,
+              user_id: r.user_id,
               score: Number(r.score),
               match_type: this.currentForm.match_type,
               date: this.currentForm.date,
@@ -595,9 +576,9 @@
               alert("🚀 已成功送出並記入戰績排行榜！");
             }
 
-            const freshDetailsSnap = await db.collection("game_details").get();
-            this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
+            const freshDetailsSnap = await getDocs(collection(db, "game_details"));
+            this.details = freshDetailsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
             if (this.isEditing) {
               const gIdx = this.games.findIndex(g => g.id === this.editingGameId);
               if (gIdx !== -1) {
@@ -622,11 +603,11 @@
           this.isEditing = true;
           this.editingGameId = game.id;
           this.currentForm.date = game.date;
-          this.currentForm.match_type = game.match_type || 'credit'; 
-          this.currentTab = 'record'; 
+          this.currentForm.match_type = game.match_type || 'credit';
+          this.currentTab = 'record';
           const gameDetails = this.details.filter(d => d.game_id === game.id);
           this.currentForm.records = gameDetails.map(d => ({ user_id: d.user_id, score: d.score }));
-          
+
           this.$nextTick(() => {
             const el = document.getElementById('record-zone');
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -636,15 +617,15 @@
           if (!this.checkAdminPermission()) return;
           if (confirm("認真要刪除這場紀錄？")) {
             try {
-              const batch = db.batch();
-              batch.delete(db.collection("games").doc(id));
-              this.details.filter(d => d.game_id === id).forEach(d => batch.delete(db.collection("game_details").doc(d.id)));
+              const batch = writeBatch(db);
+              batch.delete(doc(db, "games", id));
+              this.details.filter(d => d.game_id === id).forEach(d => batch.delete(doc(db, "game_details", d.id)));
               await batch.commit();
 
               this.games = this.games.filter(g => g.id !== id);
 
-              const freshDetailsSnap = await db.collection("game_details").get();
-              this.details = freshDetailsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+              const freshDetailsSnap = await getDocs(collection(db, "game_details"));
+              this.details = freshDetailsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
               if (this.showHistorySection) {
                 this.fetchMonthCounts();
@@ -656,9 +637,10 @@
           }
         },
         cancelEdit() {
-          this.isEditing = false; this.editingGameId = null;
+          this.isEditing = false;
+          this.editingGameId = null;
           this.currentForm.date = new Date().toISOString().split('T')[0];
-          this.currentForm.match_type = 'credit'; 
+          this.currentForm.match_type = 'credit';
           this.currentForm.note = '';
           this.currentForm.records = [
             { user_id: '', score: 0 }, { user_id: '', score: 0 },
@@ -670,13 +652,16 @@
           let email = prompt("輸入管理者帳號");
           let password = prompt("輸入密碼");
           if (!email || !password) return;
-          try { 
-            await auth.signInWithEmailAndPassword(email, password); 
-          } catch (e) { 
-            alert("登入失敗，原因：" + e.message); 
+          try {
+            await signInWithEmailAndPassword(auth, email, password);
+          } catch (e) {
+            alert("登入失敗，原因：" + e.message);
           }
         },
-        async logout() { await auth.signOut(); this.currentTab = 'record'; },
+        async logout() {
+          await signOut(auth);
+          this.currentTab = 'record';
+        },
 
         startVoiceInput() {
           const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -704,31 +689,29 @@
           this.isAiParsing = true;
 
           try {
-            if (typeof window.initGeminiModel !== 'function') {
-              const reason = window.aiInitError ? `（錯誤原因：${window.aiInitError}）` : "（請確認網路可連上 gstatic.com CDN）";
-              throw new Error("AI 模組初始化未完成" + reason);
-            }
-
-            const model = window.initGeminiModel({
-              responseMimeType: "application/json",
-              responseSchema: {
-                type: "object",
-                properties: {
-                  date: { type: "string", description: "YYYY-MM-DD 格式日期" },
-                  match_type: { type: "string", enum: ["credit", "cash"], description: "記帳戰為 credit，現金戰為 cash，未提及預設 credit" },
-                  records: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        user_id: { type: "string", description: "必須對應提供的牌咖 ID" },
-                        score: { type: "number", description: "贏錢為正數，輸錢為負數；若有提到『剩下的某人補齊』，請自動計算出讓總和為 0 的金額" }
-                      },
-                      required: ["user_id", "score"]
+            const model = getGenerativeModel(ai, {
+              model: "gemini-2.5-flash",
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: "object",
+                  properties: {
+                    date: { type: "string", description: "YYYY-MM-DD 格式日期" },
+                    match_type: { type: "string", enum: ["credit", "cash"], description: "記帳戰為 credit，現金戰為 cash，未提及預設 credit" },
+                    records: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          user_id: { type: "string", description: "必須對應提供的牌咖 ID" },
+                          score: { type: "number", description: "贏錢為正數，輸錢為負數；若有提到『剩下的某人補齊』，請自動計算出讓總和為 0 的金額" }
+                        },
+                        required: ["user_id", "score"]
+                      }
                     }
-                  }
-                },
-                required: ["date", "match_type", "records"]
+                  },
+                  required: ["date", "match_type", "records"]
+                }
               }
             });
 
@@ -760,24 +743,11 @@
         }
       },
       mounted() {
-        if (window.isGeminiAiReady || typeof window.initGeminiModel === 'function') {
-          this.aiReady = true;
-        } else {
-          window.addEventListener('gemini-ai-ready', () => { this.aiReady = true; });
-          const checkTimer = setInterval(() => {
-            if (window.isGeminiAiReady || typeof window.initGeminiModel === 'function') {
-              this.aiReady = true;
-              clearInterval(checkTimer);
-            } else if (window.aiInitError) {
-              clearInterval(checkTimer);
-            }
-          }, 300);
-        }
         if (!this.availableYears.includes(this.selectedYear)) {
           this.availableYears.push(this.selectedYear);
           this.availableYears.sort((a, b) => a - b);
         }
-        auth.onAuthStateChanged(user => { this.isLoggedIn = !!user; });
+        onAuthStateChanged(auth, user => { this.isLoggedIn = !!user; });
         this.listenToDatabase();
       }
     }).mount('#app');
