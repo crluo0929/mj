@@ -87,7 +87,12 @@
         </h3>
 
         <div class="bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-2xl border-2 border-indigo-300 mb-5 space-y-3">
-          <label class="block text-sm font-black text-indigo-800">🎙️ AI 一句話／語音自動填單</label>
+          <div class="flex justify-between items-center">
+            <label class="block text-sm font-black text-indigo-800">🎙️ AI 一句話／語音自動填單</label>
+            <span class="text-xs font-bold px-2 py-0.5 rounded-full" :class="aiReady ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'">
+              {{ aiReady ? '🟢 AI 就緒' : '🟡 連線中' }}
+            </span>
+          </div>
           <textarea v-model="aiPromptText" rows="2" 
                     placeholder="例：昨天現金戰，阿明贏1200，大華輸500，小美輸700，剩下的老王補"
                     class="w-full bg-white p-3 rounded-xl border-2 border-indigo-200 text-lg font-bold text-gray-800"></textarea>
@@ -248,9 +253,9 @@
 
   </div>
 
-  <!-- Firebase 初始化 -->
+  <!-- Firebase Compat 初始化（供 Auth / Firestore 使用） -->
   <script>
-    const firebaseConfig = {
+    window.firebaseConfig = {
       apiKey: "AIzaSyBcbhgE6RbInPV2t9vEvmyszO4y98T6dz8",
       authDomain: "mj-26d77.firebaseapp.com",
       projectId: "mj-26d77",
@@ -258,29 +263,52 @@
       messagingSenderId: "280964083300",
       appId: "1:280964083300:web:7161e7af6037a99d79f971"
     };
-    
-    firebase.initializeApp(firebaseConfig);
 
-    // 若尚未啟用 App Check 或還在測試，請保持下方這行註解狀態；啟用後把最前面的 // 拿掉並填入 Site Key 即可
-    // firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider('6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ'), true);
+    // ⚠️【重要設定】若要啟用 App Check，請將下方 '請貼上你的網站金鑰_SITE_KEY' 替換為你的網站金鑰 (6LeRuiYu...) 並拿掉最前面的 //
+    window.RECAPTCHA_SITE_KEY = '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ';
+    window.ENABLE_APP_CHECK = true; // 填入網站金鑰後，把這裡改成 true
+    
+    firebase.initializeApp(window.firebaseConfig);
+    if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY !== '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ') {
+      firebase.appCheck().activate(new firebase.appCheck.ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY), true);
+    }
 
     const db = firebase.firestore();
     const auth = firebase.auth();
   </script>
 
-  <!-- 官方 ESM 載入 Firebase AI Logic SDK（解決 compat 版無 firebase.ai() 問題） -->
+  <!-- 官方 ESM 獨立實例載入 Firebase AI Logic SDK（徹底避免與 compat 版衝突出錯） -->
   <script type="module">
-    import { getApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
+    import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app-check.js";
     import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-ai.js";
 
-    window.initGeminiModel = (generationConfig) => {
-      const app = getApp();
-      const ai = getAI(app, { backend: new GoogleAIBackend() });
-      return getGenerativeModel(ai, {
-        model: "gemini-2.5-flash",
-        generationConfig
-      });
-    };
+    try {
+      // 建立獨立具名 App 實例 "ai-module-app"，不與上方 compat 版打架
+      const aiApp = initializeApp(window.firebaseConfig, "ai-module-app");
+
+      if (window.ENABLE_APP_CHECK && window.RECAPTCHA_SITE_KEY !== '6LeRuiYuAAAAAGGwehTJ6h1YnHGLU9V2iLO7ULuQ') {
+        initializeAppCheck(aiApp, {
+          provider: new ReCaptchaEnterpriseProvider(window.RECAPTCHA_SITE_KEY),
+          isTokenAutoRefreshEnabled: true
+        });
+      }
+
+      const ai = getAI(aiApp, { backend: new GoogleAIBackend() });
+
+      window.initGeminiModel = (generationConfig) => {
+        return getGenerativeModel(ai, {
+          model: "gemini-2.5-flash",
+          generationConfig
+        });
+      };
+
+      // 通知 Vue 畫面 AI 模組已就緒
+      window.dispatchEvent(new Event('gemini-ai-ready'));
+    } catch (err) {
+      window.aiInitError = err.message;
+      console.error("Firebase AI 模組初始化失敗:", err);
+    }
   </script>
 
   <!-- Vue 主程式 -->
@@ -318,6 +346,7 @@
             ]
           },
           userForm: { id: null, name: '' },
+          aiReady: typeof window.initGeminiModel === 'function',
           aiPromptText: '',
           isRecording: false,
           isAiParsing: false
@@ -348,7 +377,6 @@
           this.users.forEach(u => scoresMap[u.id] = { name: u.name, total: 0 });
           
           this.details.forEach(d => {
-            // 向下相容：若有 year 欄位則讀取；若無但有 date 欄位則取前四碼；若全無（舊資料）則預設歸類為 2026
             const recordYear = d.year ? Number(d.year) : (d.date ? Number(d.date.split('-')[0]) : 2026);
             if (recordYear !== this.selectedYear) return;
 
@@ -688,7 +716,8 @@
 
           try {
             if (typeof window.initGeminiModel !== 'function') {
-              throw new Error("AI 模組尚未載入完成，請稍候兩秒再試一次。");
+              const reason = window.aiInitError ? `（錯誤原因：${window.aiInitError}）` : "（請確認網路可連上 gstatic.com CDN）";
+              throw new Error("AI 模組初始化未完成" + reason);
             }
 
             const model = window.initGeminiModel({
@@ -742,6 +771,9 @@
         }
       },
       mounted() {
+        window.addEventListener('gemini-ai-ready', () => {
+          this.aiReady = true;
+        });
         if (!this.availableYears.includes(this.selectedYear)) {
           this.availableYears.push(this.selectedYear);
           this.availableYears.sort((a, b) => a - b);
